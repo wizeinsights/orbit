@@ -19,6 +19,7 @@ import {
   AttributeSortSpecifier,
   RelatedRecordsFilterSpecifier
 } from '@orbit/data';
+import { Resource } from '../jsonapi-document';
 import JSONAPISource from '../jsonapi-source';
 import { DeserializedDocument } from '../jsonapi-serializer';
 import { Filter, RequestOptions, buildFetchSettings, customRequestOptions } from './request-settings';
@@ -48,6 +49,7 @@ export interface QueryOperator {
   (source: JSONAPISource, query: Query): Promise<QueryOperatorResponse>;
 }
 
+
 export const QueryOperators: Dict<QueryOperator> = {
   async findRecord(source: JSONAPISource, query: Query): Promise<QueryOperatorResponse> {
     const expression = query.expression as FindRecord;
@@ -55,7 +57,7 @@ export const QueryOperators: Dict<QueryOperator> = {
     const requestOptions = customRequestOptions(source, query);
     const settings = buildFetchSettings(requestOptions);
 
-    const document = await source.fetch(source.resourceURL(record.type, record.id), settings);
+    const document = await source.fetch(source.resourceURL(record.type, getResourceId(source, record)), settings);
 
     const deserialized = source.serializer.deserializeDocument(document);
     const operations = operationsFromDeserializedDocument(deserialized);
@@ -108,7 +110,7 @@ export const QueryOperators: Dict<QueryOperator> = {
     const requestOptions = customRequestOptions(source, query);
     const settings = buildFetchSettings(requestOptions);
 
-    const document = await source.fetch(source.relatedResourceURL(record.type, record.id, relationship), settings);
+    const document = await source.fetch(source.relatedResourceURL(record.type, getResourceId(source, record), relationship), settings);
 
     const deserialized = source.serializer.deserializeDocument(document);
     const relatedRecord = deserialized.data;
@@ -132,7 +134,7 @@ export const QueryOperators: Dict<QueryOperator> = {
     let requestOptions = customRequestOptions(source, query);
     const settings = buildFetchSettings(requestOptions);
 
-    const document = await source.fetch(source.relatedResourceURL(record.type, record.id, relationship), settings);
+    const document = await source.fetch(source.relatedResourceURL(record.type, getResourceId(source, record), relationship), settings);
 
     const deserialized = source.serializer.deserializeDocument(document);
     const relatedRecords = deserialized.data;
@@ -152,7 +154,14 @@ export const QueryOperators: Dict<QueryOperator> = {
   }
 };
 
+function getResourceId(source: JSONAPISource, resource: Resource): string {
+  const { serializer } = source;
+  return serializer.resourceId(resource.type, resource.id!);
+}
+
 function buildFilterParam(source: JSONAPISource, filterSpecifiers: FilterSpecifier[]) {
+  const { serializer } = source;
+
   const filters: Filter[] = [];
 
   filterSpecifiers.forEach(filterSpecifier => {
@@ -165,16 +174,16 @@ function buildFilterParam(source: JSONAPISource, filterSpecifiers: FilterSpecifi
     } else if (filterSpecifier.kind === 'relatedRecord') {
       const relatedRecordFilter = filterSpecifier as RelatedRecordFilterSpecifier;
       if (Array.isArray(relatedRecordFilter.record)) {
-        filters.push({ [relatedRecordFilter.relation]: relatedRecordFilter.record.map(e => e.id).join(',') });
+        filters.push({ [relatedRecordFilter.relation]: relatedRecordFilter.record.map(e => getResourceId(source, e)).join(',') });
       } else {
-        filters.push({ [relatedRecordFilter.relation]: relatedRecordFilter.record.id });
+        filters.push({ [relatedRecordFilter.relation]: getResourceId(source, relatedRecordFilter.record) });
       }
     } else if (filterSpecifier.kind === 'relatedRecords') {
       if (filterSpecifier.op !== 'equal') {
         throw new Error(`Operation "${filterSpecifier.op}" is not supported in JSONAPI for relatedRecords filtering`);
       }
       const relatedRecordsFilter = filterSpecifier as RelatedRecordsFilterSpecifier;
-      filters.push({ [relatedRecordsFilter.relation]: relatedRecordsFilter.records.map(e => e.id).join(',') });
+      filters.push({ [relatedRecordsFilter.relation]: relatedRecordsFilter.records.map(e => getResourceId(source, e)).join(',') });
     } else {
       throw new QueryExpressionParseError(`Filter operation ${filterSpecifier.op} not recognized for JSONAPISource.`, filterSpecifier);
     }
